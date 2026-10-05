@@ -1,0 +1,17 @@
+[project]
+name = "taxi-trip-duration"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12.8"
+dependencies = [
+    "dvc>=3.67.1",
+    "numpy>=2.5.3",
+    "pandas>=3.0.6",
+    "pre-commit>=4.6.2",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.10",
+]
