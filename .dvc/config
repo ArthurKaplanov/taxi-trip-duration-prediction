@@ -1,0 +1,5 @@
+[core]
+    remote = taxi-trip-data
+['remote "taxi-trip-data"']
+    url = s3://taxi-trip-data/dvcstore
+    endpointurl = https://storage.yandexcloud.net
