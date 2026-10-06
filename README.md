@@ -1,0 +1,6 @@
+# TAXI TRIP DURATION PREDICTION
+
+
+ToDO:
+- [ ] TO INIT DVC, ADD  DATA TO LOCAL/S3 STORAGE
+    SETUP: scripts/dvc_setup.sh
