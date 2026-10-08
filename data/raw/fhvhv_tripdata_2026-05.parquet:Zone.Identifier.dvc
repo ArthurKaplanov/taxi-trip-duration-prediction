@@ -1,0 +1,5 @@
+outs:
+- md5: cfca1aacd7f6564a550d570b410e11d0
+  size: 25
+  hash: md5
+  path: fhvhv_tripdata_2026-05.parquet:Zone.Identifier
