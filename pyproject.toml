@@ -17,3 +17,11 @@ dev = [
     "ipykernel>=7.4.0",
     "ruff>=0.16.10",
 ]
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14"]
+build-backend = "uv_build"
+
+[tool.ruff.lint]
+# Включаем дефолтные правила (E, F) + сортировку импортов (I)
+select = ["E", "F", "I"]
