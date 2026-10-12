@@ -1,6 +1,7 @@
 *
 
 !raw/
+!processed/
 !.gitignore
 !.gitkeep
 !*.dvc
