@@ -34,3 +34,25 @@ DATETIME_COLUMNS = [
     "pickup_datetime",
     "dropoff_datetime",
 ]
+
+
+FEATURE_SETS = {
+    "v1": [
+        "PULocationID",
+        "DOLocationID",
+        "route_id",
+        "pickup_borough",
+        "dropoff_borough",
+        "request_hour",
+        "day_of_week",
+        "is_weekend",
+        "same_zone",
+        "hvfhs_license_num",
+        "shared_request_flag",
+        "wav_request_flag",
+    ],
+}
+
+FEATURE_SET_VERSION = "v1"
+
+TARGET_COLUMN = "target_duration_sec"
