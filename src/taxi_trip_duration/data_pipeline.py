@@ -7,17 +7,20 @@ import pandas as pd
 
 from taxi_trip_duration.config import (
     DATASET_NAME,
+    DATETIME_COLUMNS,
     MODEL_INPUT_COLUMNS,
     PROCESSED_DATA_PATH,
     RAW_DATA_PATH,
     REPORT_PATH,
     REQUIRED_COLUMNS,
+    ZONE_LOOKUP_PATH,
 )
 from taxi_trip_duration.preprocessing import preprocess_trips
 from taxi_trip_duration.validation import (
     build_invalid_mask,
     build_quality_report,
     require_columns,
+    require_datetime_columns,
 )
 
 
@@ -32,22 +35,34 @@ def read_raw_data(raw_data_path: Path, sample_rows: int | None = None) -> pd.Dat
 
 def run_data_pipeline(
     raw_data_path: Path = RAW_DATA_PATH,
+    zone_lookup_path: Path = ZONE_LOOKUP_PATH,
     processed_data_path: Path = PROCESSED_DATA_PATH,
     report_path: Path = REPORT_PATH,
     sample_rows: int | None = None,
 ) -> dict:
     df_raw = read_raw_data(raw_data_path, sample_rows)
     require_columns(df_raw, REQUIRED_COLUMNS)
+    require_datetime_columns(df_raw, DATETIME_COLUMNS)
 
-    invalid_mask = build_invalid_mask(df_raw, REQUIRED_COLUMNS)
-    df_processed = preprocess_trips(df_raw, MODEL_INPUT_COLUMNS, invalid_mask)
+    zone_lookup = pd.read_csv(zone_lookup_path)
+    known_location_ids = set(zone_lookup["LocationID"])
+
+    invalid_mask = build_invalid_mask(df_raw, REQUIRED_COLUMNS, known_location_ids)
+    df_processed = preprocess_trips(
+        df_raw,
+        zone_lookup,
+        MODEL_INPUT_COLUMNS,
+        invalid_mask,
+    )
 
     report = build_quality_report(
         df_raw=df_raw,
         df_processed=df_processed,
         dataset_name=DATASET_NAME,
         required_columns=REQUIRED_COLUMNS,
+        datetime_columns=DATETIME_COLUMNS,
         invalid_mask=invalid_mask,
+        known_location_ids=known_location_ids,
     )
 
     processed_data_path.parent.mkdir(parents=True, exist_ok=True)
@@ -65,6 +80,7 @@ def run_data_pipeline(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--raw-path", type=Path, default=RAW_DATA_PATH)
+    parser.add_argument("--zone-lookup-path", type=Path, default=ZONE_LOOKUP_PATH)
     parser.add_argument("--processed-path", type=Path, default=PROCESSED_DATA_PATH)
     parser.add_argument("--report-path", type=Path, default=REPORT_PATH)
     parser.add_argument("--sample-rows", type=int, default=None)
@@ -75,6 +91,7 @@ if __name__ == "__main__":
     args = parse_args()
     report = run_data_pipeline(
         raw_data_path=args.raw_path,
+        zone_lookup_path=args.zone_lookup_path,
         processed_data_path=args.processed_path,
         report_path=args.report_path,
         sample_rows=args.sample_rows,

@@ -1,10 +1,30 @@
 import pandas as pd
+from pandas.api.types import is_datetime64_any_dtype
 
 
 def require_columns(df: pd.DataFrame, required_columns: list[str]) -> None:
     missing_columns = [col for col in required_columns if col not in df.columns]
     if missing_columns:
         raise ValueError(f"Missing required columns: {missing_columns}")
+
+
+def require_datetime_columns(df: pd.DataFrame, datetime_columns: list[str]) -> None:
+    invalid_columns = [
+        col for col in datetime_columns if not is_datetime64_any_dtype(df[col])
+    ]
+    if invalid_columns:
+        raise TypeError(f"Columns must be datetime: {invalid_columns}")
+
+
+def build_dtype_report(df: pd.DataFrame, datetime_columns: list[str]) -> dict:
+    return {
+        col: {
+            "actual": str(df[col].dtype),
+            "expected": "datetime",
+            "valid": bool(is_datetime64_any_dtype(df[col])),
+        }
+        for col in datetime_columns
+    }
 
 
 def calculate_duration_sec(df: pd.DataFrame) -> pd.Series:
@@ -43,20 +63,36 @@ def build_quality_report(
     df_processed: pd.DataFrame,
     dataset_name: str,
     required_columns: list[str],
+    datetime_columns: list[str],
     invalid_mask: pd.Series,
+    known_location_ids: set[int] | None = None,
 ) -> dict:
     duration_raw = calculate_duration_sec(df_raw)
     duration_processed = df_processed["target_duration_sec"]
+    unknown_pickup_count = 0
+    unknown_dropoff_count = 0
+
+    if known_location_ids is not None:
+        unknown_pickup_count = int(
+            (~df_raw["PULocationID"].isin(known_location_ids)).sum()
+        )
+        unknown_dropoff_count = int(
+            (~df_raw["DOLocationID"].isin(known_location_ids)).sum()
+        )
 
     return {
         "dataset": dataset_name,
         "rows_raw": len(df_raw),
         "rows_processed": len(df_processed),
-        "rows_dropped": int(invalid_mask.sum()),
+        "rows_dropped": len(df_raw) - len(df_processed),
+        "rows_invalid": int(invalid_mask.sum()),
+        "dtype_check": build_dtype_report(df_raw, datetime_columns),
         "missing_rate": {
             col: float(df_raw[col].isna().mean()) for col in required_columns
         },
         "duplicate_row_count": int(df_raw.duplicated().sum()),
+        "unknown_pickup_location_count": unknown_pickup_count,
+        "unknown_dropoff_location_count": unknown_dropoff_count,
         "invalid_duration_count": int((duration_raw <= 0).sum()),
         "pickup_before_request_count": int(
             (df_raw["pickup_datetime"] < df_raw["request_datetime"]).sum()
