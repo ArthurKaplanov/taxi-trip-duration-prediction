@@ -8,6 +8,7 @@ RAW_DATA_PATH = PROJECT_ROOT / "data" / "raw" / f"{DATASET_NAME}.parquet"
 ZONE_LOOKUP_PATH = PROJECT_ROOT / "data" / "raw" / "taxi_zone_lookup.csv"
 PROCESSED_DATA_PATH = PROJECT_ROOT / "data" / "processed" / f"{DATASET_NAME}.parquet"
 REPORT_PATH = PROJECT_ROOT / "data" / "reports" / "data_quality_2026-05.json"
+TRAINING_REPORT_PATH = PROJECT_ROOT / "data" / "reports" / "training_metrics.json"
 
 REQUIRED_COLUMNS = [
     "PULocationID",
@@ -56,3 +57,6 @@ FEATURE_SETS = {
 FEATURE_SET_VERSION = "v1"
 
 TARGET_COLUMN = "target_duration_sec"
+
+MLFLOW_TRACKING_SERVER = "http://localhost:5005"
+EXPERIMENT_NAME = "taxi_trip_prediction"

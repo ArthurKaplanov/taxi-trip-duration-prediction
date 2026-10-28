@@ -9,4 +9,5 @@ ToDO:
       ├── data_pipeline.py
       ├── preprocessing.py
       └── validation.py
-- [ ] добавить features_engineering.py
+- [X] добавить features_engineering.py
+- [X] добавить train.py training_pipeline.py
