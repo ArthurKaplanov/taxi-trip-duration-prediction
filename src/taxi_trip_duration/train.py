@@ -38,21 +38,6 @@ def time_split(
     return train_df, val_df, test_df
 
 
-def train_dummy_regression(y_train: pd.Series):
-    """обучение DummyRegressor с медианной стратегией
-    всегда прогнозирует медианную длительность поездки, рассчитанную на Train
-    """
-    try:
-        from sklearn.dummy import DummyRegressor
-    except ImportError as exc:
-        raise ImportError("Install scikit-learn to train DummyRegressor") from exc
-
-    model = DummyRegressor(strategy="median")
-    model.fit(np.zeros((len(y_train), 1)), y_train)
-
-    return model
-
-
 def train_catboost_regressor(
     X_train: pd.DataFrame,
     y_train: pd.Series,
@@ -71,7 +56,7 @@ def train_catboost_regressor(
     model = CatBoostRegressor(
         iterations=300,
         learning_rate=0.1,
-        depth=8,
+        depth=4,
         loss_function="RMSE",
         random_seed=42,
         allow_writing_files=False,

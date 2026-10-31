@@ -1,4 +1,4 @@
-.PHONY: dvc-add data data-sample lint train train-sample
+.PHONY: dvc-add data data-sample lint train train-sample mlflow-local
 
 PYTHON ?= .venv/bin/python
 RUFF ?= .venv/bin/ruff
@@ -12,6 +12,16 @@ lint:
 
 dvc-add:
 	$(DVC) add $(file)
+
+mlflow-local:
+	uv run mlflow server \
+	--backend-store-uri sqlite:///mlflow.db \
+	--default-artifact-root ./mlruns \
+	--host 127.0.0.1 \
+	--port 5005
+
+mlflow-docker:
+	docker-compose -f infra/docker/mlflow-docker-compose.yaml up -d
 
 data:
 	PYTHONPATH=src $(PYTHON) -m taxi_trip_duration.data_pipeline

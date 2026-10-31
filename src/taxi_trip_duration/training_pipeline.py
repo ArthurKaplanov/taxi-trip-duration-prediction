@@ -8,9 +8,10 @@ from pathlib import Path
 import mlflow
 import mlflow.catboost
 import mlflow.data
-import numpy as np
 import pandas as pd
 from loguru import logger
+from mlflow.client import MlflowClient
+from mlflow.exceptions import MlflowException
 from mlflow.models import infer_signature
 
 from taxi_trip_duration.config import (
@@ -27,7 +28,6 @@ from taxi_trip_duration.train import (
     calculate_metrics,
     time_split,
     train_catboost_regressor,
-    train_dummy_regression,
 )
 
 CATEGORICAL_FEATURES = [
@@ -54,6 +54,88 @@ def prepare_model_input(
             X[column] = X[column].astype(str)
 
     return X
+
+
+def get_champion(client: MlflowClient, model_name: str):
+    try:
+        return client.get_model_version_by_alias(
+            name=model_name,
+            alias="Champion",
+        )
+    except MlflowException as exc:
+        if exc.error_code == "RESOURCE_DOES_NOT_EXIST":
+            return None
+        raise
+
+
+def compare_and_promote(
+    model_name: str,
+    challenger_model_uri: str,
+    X_val,
+    y_val,
+    min_improvement: float = 0.0,
+):
+    client = MlflowClient()
+
+    champion = get_champion(client, model_name)
+
+    challenger_model = mlflow.pyfunc.load_model(challenger_model_uri)
+    challenger_predictions = challenger_model.predict(X_val)
+
+    challenger_mae = calculate_metrics(y_val, challenger_predictions)["mae"]
+
+    if champion is None:
+        # Bootstrap: первая модель
+        registered = mlflow.register_model(
+            model_uri=challenger_model_uri,
+            name=model_name,
+        )
+
+        client.set_registered_model_alias(
+            name=model_name,
+            alias="Champion",
+            version=registered.version,
+        )
+
+        return {
+            "decision": "initial_champion",
+            "version": registered.version,
+            "challenger_mae": challenger_mae,
+        }
+
+    champion_model = mlflow.pyfunc.load_model(
+        f"models:/{model_name}/{champion.version}"
+    )
+
+    champion_predictions = champion_model.predict(X_val)
+
+    champion_mae = calculate_metrics(y_val, champion_predictions)["mae"]
+
+    if challenger_mae < champion_mae - min_improvement:
+        registered = mlflow.register_model(
+            model_uri=challenger_model_uri,
+            name=model_name,
+        )
+
+        client.set_registered_model_alias(
+            name=model_name,
+            alias="Champion",
+            version=registered.version,
+        )
+
+        return {
+            "decision": "promoted",
+            "version": registered.version,
+            "champion_mae": champion_mae,
+            "challenger_mae": challenger_mae,
+        }
+
+    return {
+        "decision": "rejected",
+        "version": champion.version,
+        "champion_mae": champion_mae,
+        "challenger_mae": challenger_mae,
+    }
 
 
 def run_training_pipeline(
@@ -97,10 +179,6 @@ def run_training_pipeline(
             y_val = val_df[TARGET_COLUMN]
             y_test = test_df[TARGET_COLUMN]
 
-            dummy_model = train_dummy_regression(y_train)
-            dummy_val_pred = dummy_model.predict(np.zeros((len(y_val), 1)))
-            dummy_test_pred = dummy_model.predict(np.zeros((len(y_test), 1)))
-
             catboost_model = train_catboost_regressor(
                 X_train,
                 y_train,
@@ -114,11 +192,22 @@ def run_training_pipeline(
                 catboost_model.predict(input_example),
             )
 
-            mlflow.catboost.log_model(
+            model_catboost_info = mlflow.catboost.log_model(
                 cb_model=catboost_model,
                 name="model",
                 signature=signature,
                 input_example=input_example,
+            )
+
+            data_eval = pd.DataFrame(X_val)
+            data_eval["target"] = y_val
+
+            mlflow.models.evaluate(
+                model=model_catboost_info.model_uri,
+                data=data_eval,
+                targets="target",
+                model_type="regressor",
+                evaluator_config={"log_model_explainability": False},
             )
 
             catboost_val_pred = catboost_model.predict(X_val)
@@ -134,24 +223,11 @@ def run_training_pipeline(
                 "features": feature_columns,
                 "cat_features": cat_features,
                 "metrics": {
-                    "dummy": {
-                        "val": calculate_metrics(y_val, dummy_val_pred),
-                        "test": calculate_metrics(y_test, dummy_test_pred),
-                    },
-                    "catboost": {
-                        "val": calculate_metrics(y_val, catboost_val_pred),
-                        "test": calculate_metrics(y_test, catboost_test_pred),
-                    },
+                    "val": calculate_metrics(y_val, catboost_val_pred),
+                    "test": calculate_metrics(y_test, catboost_test_pred),
                 },
             }
             mlflow.log_dict(report, "reports/training_metrics.json")
-
-            mlflow.log_metrics(
-                {
-                    "catboost_val_mae": report["metrics"]["catboost"]["val"]["mae"],
-                    "catboost_val_rmse": report["metrics"]["catboost"]["val"]["rmse"],
-                }
-            )
 
             mlflow.log_params(
                 {
@@ -198,9 +274,24 @@ def run_training_pipeline(
                 encoding="utf-8",
             )
 
+            decision = compare_and_promote(
+                model_name=f"{EXPERIMENT_NAME}_model",
+                challenger_model_uri=model_catboost_info.model_uri,
+                X_val=X_val,
+                y_val=y_val,
+                min_improvement=5.0,
+            )
+
+            mlflow.log_dict(
+                decision,
+                "reports/promotion_decision.json",
+            )
+
+            logger.info(f"Promotion decision: {decision}")
+
             return report
         except Exception as ex:
-            logger.error(f"Error during MLflow run: {str(ex)}")
+            logger.exception(f"Error during MLflow run: {str(ex)}")
             raise
 
 
