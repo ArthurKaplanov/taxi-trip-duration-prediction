@@ -22,6 +22,7 @@ from taxi_trip_duration.config import (
     PROCESSED_DATA_PATH,
     TARGET_COLUMN,
     TRAINING_REPORT_PATH,
+    ZONE_LOOKUP_PATH,
 )
 from taxi_trip_duration.features_engineering import build_features
 from taxi_trip_duration.train import (
@@ -140,6 +141,7 @@ def compare_and_promote(
 
 def run_training_pipeline(
     processed_data_path: Path = PROCESSED_DATA_PATH,
+    zone_lookup_path: Path = ZONE_LOOKUP_PATH,
     report_path: Path = TRAINING_REPORT_PATH,
     feature_set_version: str = FEATURE_SET_VERSION,
 ) -> dict:
@@ -157,7 +159,14 @@ def run_training_pipeline(
                 {"features_version": feature_set_version, "model_type": "catboost"}
             )
             df = pd.read_parquet(processed_data_path)
-            df = build_features(df)
+
+            df_zone_lookup = pd.read_csv(zone_lookup_path)
+            df_zone_lookup = df_zone_lookup.fillna("Unknown")
+            df_zone_lookup = df_zone_lookup[["LocationID", "Borough", "Zone"]]
+
+            df = build_features(df, df_zone_lookup)
+
+            df.to_parquet("data/processed/fhvhv_tripdata_2026-05_test.parquet")
 
             if TARGET_COLUMN not in df.columns:
                 raise ValueError(f"Missing target column: {TARGET_COLUMN}")
@@ -298,6 +307,7 @@ def run_training_pipeline(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--processed-path", type=Path, default=PROCESSED_DATA_PATH)
+    parser.add_argument("--zone-lookup-path", type=Path, default=ZONE_LOOKUP_PATH)
     parser.add_argument("--report-path", type=Path, default=TRAINING_REPORT_PATH)
     parser.add_argument("--feature-set-version", default=FEATURE_SET_VERSION)
     return parser.parse_args()

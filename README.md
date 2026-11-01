@@ -11,6 +11,7 @@ ToDO:
       └── validation.py
 - [X] добавить features_engineering.py
 - [X] добавить train.py training_pipeline.py
+- [ ]
 
 **виртуальное окружение**:
 ```bash

@@ -45,13 +45,11 @@ def run_data_pipeline(
     require_datetime_columns(df_raw, DATETIME_COLUMNS)
 
     zone_lookup = pd.read_csv(zone_lookup_path)
-    zone_lookup = zone_lookup.fillna("Unknown")
     known_location_ids = set(zone_lookup["LocationID"])
 
     invalid_mask = build_invalid_mask(df_raw, REQUIRED_COLUMNS, known_location_ids)
     df_processed = preprocess_trips(
         df_raw,
-        zone_lookup,
         MODEL_INPUT_COLUMNS,
         invalid_mask,
     )

@@ -18,8 +18,38 @@ def _require_columns(df: pd.DataFrame, required_columns: list[str]) -> None:
         raise ValueError(f"Missing required columns: {missing_columns}")
 
 
+def enrich_taxi_zones(
+    df: pd.DataFrame,
+    zone_lookup: pd.DataFrame,
+) -> pd.DataFrame:
+    processed = df.merge(
+        zone_lookup.rename(
+            columns={
+                "LocationID": "PULocationID",
+                "Borough": "pickup_borough",
+                "Zone": "pickup_zone",
+            }
+        ),
+        on="PULocationID",
+        how="left",
+    )
+    processed = processed.merge(
+        zone_lookup.rename(
+            columns={
+                "LocationID": "DOLocationID",
+                "Borough": "dropoff_borough",
+                "Zone": "dropoff_zone",
+            }
+        ),
+        on="DOLocationID",
+        how="left",
+    )
+    return processed
+
+
 def build_features(
     df: pd.DataFrame,
+    zone_lookup: pd.DataFrame,
     feature_set_version: str = FEATURE_SET_VERSION,
     select_feature_set: bool = False,
 ) -> pd.DataFrame:
@@ -37,6 +67,8 @@ def build_features(
 
     result = df.copy()
 
+    result = enrich_taxi_zones(result, zone_lookup)
+
     result["route_id"] = (
         result["PULocationID"].astype(str) + "_" + result["DOLocationID"].astype(str)
     )
@@ -44,6 +76,9 @@ def build_features(
     result["day_of_week"] = result["request_datetime"].dt.dayofweek
     result["is_weekend"] = (result["day_of_week"] >= 5).astype(int)
     result["same_zone"] = (result["PULocationID"] == result["DOLocationID"]).astype(int)
+    result["route_id"] = (
+        result["PULocationID"].astype(str) + "_" + result["DOLocationID"].astype(str)
+    )
 
     if select_feature_set:
         feature_columns = FEATURE_SETS[feature_set_version]
