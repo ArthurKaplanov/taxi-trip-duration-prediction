@@ -158,16 +158,29 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=model-v${{ inputs.model_version }}
 
-      - name: Start container
-        env:
-          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+      - name: Inspect container startup
         run: |
-          docker run -d \
-            --name taxi-prediction-test \
-            -p 8000:8000 \
-            -e MODEL_URI=/app/models \
-            -e MLFLOW_TRACKING_SERVER=http://127.0.0.1:5005 \
-            "$IMAGE_TAG"
+          echo "=== Docker containers ==="
+          docker ps -a
+
+          echo "=== Container status ==="
+          docker inspect taxi-prediction-test \
+            --format '{{json .State}}'
+
+          echo "=== Application logs ==="
+          docker logs --tail 100 taxi-prediction-test
+
+
+            - name: Start container
+              env:
+                IMAGE_TAG: ${{ steps.image.outputs.tag }}
+              run: |
+                docker run -d \
+                  --name taxi-prediction-test \
+                  -p 8000:8000 \
+                  -e MODEL_URI=/app/models \
+                  -e MLFLOW_TRACKING_SERVER=http://127.0.0.1:5005 \
+                  "$IMAGE_TAG"
 
       - name: Smoke test
         run: |
@@ -209,9 +222,8 @@ jobs:
                   if health.get("model_loaded") is True:
                       print("Health check passed")
                       break
-
-              except (urllib.error.URLError, TimeoutError) as exc:
-                  print(f"Health attempt {attempt + 1}: {exc}")
+              except OSError as exc:
+                  print(f"Health attempt {attempt + 1}: {exc}", flush=True)
 
               time.sleep(2)
 
@@ -247,20 +259,28 @@ jobs:
           print("Prediction smoke test passed:", prediction)
           PY
 
-      - name: Print container logs on failure
+      - name: Diagnose container on failure
         if: failure()
-        run: docker logs taxi-prediction-test || true
-
-      - name: Login to Yandex Container Registry
-        uses: yc-actions/yc-cr-login@v3
-        with:
-          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
-
-      - name: Push verified image
-        env:
-          IMAGE_TAG: ${{ steps.image.outputs.tag }}
         run: |
-          docker push "$IMAGE_TAG"
+          docker ps -a
+          docker inspect taxi-prediction-test \
+            --format '{{json .State}}' || true
+          docker logs --tail 150 taxi-prediction-test || true
+
+            - name: Print container logs on failure
+              if: failure()
+              run: docker logs taxi-prediction-test || true
+
+            - name: Login to Yandex Container Registry
+              uses: yc-actions/yc-cr-login@v3
+              with:
+                yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+
+            - name: Push verified image
+              env:
+                IMAGE_TAG: ${{ steps.image.outputs.tag }}
+              run: |
+                docker push "$IMAGE_TAG"
 
       - name: Write release summary
         env:
