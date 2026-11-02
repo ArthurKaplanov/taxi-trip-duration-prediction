@@ -171,16 +171,16 @@ jobs:
           docker logs --tail 100 taxi-prediction-test
 
 
-            - name: Start container
-              env:
-                IMAGE_TAG: ${{ steps.image.outputs.tag }}
-              run: |
-                docker run -d \
-                  --name taxi-prediction-test \
-                  -p 8000:8000 \
-                  -e MODEL_URI=/app/models \
-                  -e MLFLOW_TRACKING_SERVER=http://127.0.0.1:5005 \
-                  "$IMAGE_TAG"
+      - name: Start container
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          docker run -d \
+            --name taxi-prediction-test \
+            -p 8000:8000 \
+            -e MODEL_URI=/app/models \
+            -e MLFLOW_TRACKING_SERVER=http://127.0.0.1:5005 \
+            "$IMAGE_TAG"
 
       - name: Smoke test
         run: |
