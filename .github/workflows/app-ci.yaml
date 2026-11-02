@@ -30,7 +30,7 @@ jobs:
       # Needed only if config.py requires these at import time.
       # No connection to the local MLflow server is attempted.
       MODEL_URI: "models:/taxi_trip_duration_model/4"
-      MLFLOW_TRACKING_SERVER: "http://127.0.0.1:5005"
+      MLFLOW_TRACKING_URI: "http://127.0.0.1:5005"
 
     steps:
       - name: Checkout repository
