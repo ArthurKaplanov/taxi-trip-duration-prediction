@@ -1,0 +1,58 @@
+
+name: Taxi Prediction Service CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+  pull_request:
+    branches:
+      - main
+      - develop
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-and-tests:
+    name: Lint and Test
+    runs-on: ubuntu-24.04
+
+    env:
+      # Needed only if config.py requires these at import time.
+      # No connection to the local MLflow server is attempted.
+      MODEL_URI: "models:/taxi_trip_duration_model/4"
+      MLFLOW_TRACKING_SERVER: "http://127.0.0.1:5005"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.13.5"
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Ruff lint
+        run: uv run --no-sync ruff check src/ tests/
+
+      - name: Ruff format
+        run: uv run --no-sync ruff format --check src/ tests/
+
+      - name: Run pytest
+        run: uv run --no-sync pytest tests/ -v

@@ -1,4 +1,4 @@
-.PHONY: dvc-add data data-sample lint train train-sample mlflow-local start-app-local test
+.PHONY: dvc-add data data-sample lint train train-sample mlflow-local start-app-local test build-app run-app
 
 PYTHON ?= .venv/bin/python
 RUFF ?= .venv/bin/ruff
@@ -40,3 +40,14 @@ train:
 
 train-sample:
 	PYTHONPATH=src $(PYTHON) -m taxi_trip_duration.training_pipeline --processed-path data/processed/fhvhv_tripdata_2026-05_sample.parquet --report-path data/reports/training_metrics_sample.json
+
+build-app:
+	docker build \
+	-f infra/docker/app.Dockerfile \
+	-t taxi-prediction:local-v3 \
+	.
+run-app:
+	docker run --rm \
+	--name taxi-prediction \
+	-p 8000:8000 \
+	taxi-prediction:local-v4
