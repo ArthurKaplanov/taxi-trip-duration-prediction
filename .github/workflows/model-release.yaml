@@ -1,0 +1,255 @@
+
+name: Taxi Model Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_version:
+        description: "MLflow Model Registry version"
+        required: true
+        default: "1"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: taxi-model-release
+  cancel-in-progress: false
+
+jobs:
+  model-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    env:
+      MODEL_NAME: taxi_trip_prediction_model
+      MODEL_VERSION: ${{ inputs.model_version }}
+      MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
+      MLFLOW_S3_ENDPOINT_URL: https://storage.yandexcloud.net
+
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ru-central1
+
+      YC_REGISTRY_ID: ${{ vars.YC_REGISTRY_ID }}
+      IMAGE_REPOSITORY: taxi-prediction
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python and dependencies
+        run: |
+          uv python install 3.12
+          uv sync --locked
+
+      # Download the exact model version, not the Champion alias.
+      - name: Download MLflow model
+        run: |
+          uv run --no-sync python - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          import mlflow
+          from mlflow import MlflowClient
+
+          model_name = os.environ["MODEL_NAME"]
+          model_version = os.environ["MODEL_VERSION"]
+          model_uri = f"models:/{model_name}/{model_version}"
+
+          mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+
+          client = MlflowClient()
+          registered = client.get_model_version(
+              name=model_name,
+              version=model_version,
+          )
+
+          print(f"Model URI: {model_uri}")
+          print(f"Model run ID: {registered.run_id}")
+
+          downloaded = Path(
+              mlflow.artifacts.download_artifacts(
+                  artifact_uri=model_uri
+              )
+          )
+
+          destination = Path("models")
+          if destination.exists():
+              shutil.rmtree(destination)
+
+          shutil.copytree(downloaded, destination)
+
+          if not (destination / "MLmodel").is_file():
+              raise RuntimeError("Missing MLmodel file")
+
+          if not (destination / "model.cb").is_file():
+              raise RuntimeError("Missing CatBoost artifact")
+
+          print("MLflow model successfully downloaded")
+          PY
+
+      - name: Record release metadata
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          model_dir = Path("models")
+
+          files = {}
+          for path in sorted(model_dir.rglob("*")):
+              if path.is_file():
+                  files[str(path.relative_to(model_dir))] = (
+                      hashlib.sha256(path.read_bytes()).hexdigest()
+                  )
+
+          manifest = {
+              "model_name": os.environ["MODEL_NAME"],
+              "model_version": os.environ["MODEL_VERSION"],
+              "git_sha": os.environ["GITHUB_SHA"],
+              "model_files_sha256": files,
+          }
+
+          Path("release-manifest.json").write_text(
+              json.dumps(manifest, indent=2),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Set image tag
+        id: image
+        run: |
+          SHORT_SHA="${GITHUB_SHA::12}"
+          IMAGE="cr.yandex/${YC_REGISTRY_ID}/${IMAGE_REPOSITORY}:model-v${MODEL_VERSION}-${SHORT_SHA}"
+
+          echo "tag=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "Image: $IMAGE"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/app.Dockerfile
+          push: false
+          load: true
+          tags: ${{ steps.image.outputs.tag }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=model-v${{ inputs.model_version }}
+
+      - name: Start container
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          docker run -d \
+            --name taxi-prediction-test \
+            -p 8000:8000 \
+            -e MODEL_URI=/app/models \
+            -e MLFLOW_TRACKING_SERVER=http://127.0.0.1:5005 \
+            "$IMAGE_TAG"
+
+      - name: Smoke test
+        run: |
+          python - <<'PY'
+          import json
+          import time
+          import urllib.request
+
+          base_url = "http://127.0.0.1:8000"
+
+          # Wait until the application is ready.
+          for attempt in range(60):
+              try:
+                  with urllib.request.urlopen(
+                      f"{base_url}/health", timeout=3
+                  ) as response:
+                      health = json.load(response)
+
+                  if health.get("model_loaded") is True:
+                      break
+              except Exception:
+                  pass
+
+              time.sleep(2)
+          else:
+              raise RuntimeError("Service failed health check")
+
+          payload = {
+              "PULocationID": 76,
+              "DOLocationID": 161,
+              "request_datetime": "2026-05-15T08:30:00",
+              "hvfhs_license_num": "HV0003",
+              "shared_request_flag": "N",
+              "wav_request_flag": "N",
+          }
+
+          request = urllib.request.Request(
+              f"{base_url}/predict",
+              data=json.dumps(payload).encode(),
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+
+          with urllib.request.urlopen(
+              request, timeout=30
+          ) as response:
+              prediction = json.load(response)
+
+          duration = prediction["predicted_duration_sec"]
+
+          if not isinstance(duration, (float, int)):
+              raise AssertionError("Prediction is not numeric")
+
+          import math
+          if not math.isfinite(duration) or duration <= 0:
+              raise AssertionError("Invalid prediction")
+
+          print("Smoke test passed")
+          print(prediction)
+          PY
+
+      - name: Print container logs on failure
+        if: failure()
+        run: docker logs taxi-prediction-test || true
+
+      - name: Login to Yandex Container Registry
+        uses: yc-actions/yc-cr-login@v3
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+
+      - name: Push verified image
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          docker push "$IMAGE_TAG"
+
+      - name: Write release summary
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          {
+            echo "## Taxi Model Release"
+            echo ""
+            echo "- Model: ${MODEL_NAME}"
+            echo "- Version: ${MODEL_VERSION}"
+            echo "- Git SHA: ${GITHUB_SHA}"
+            echo "- Image: ${IMAGE_TAG}"
+            echo "- Smoke test: passed"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stop test container
+        if: always()
+        run: docker rm -f taxi-prediction-test || true
