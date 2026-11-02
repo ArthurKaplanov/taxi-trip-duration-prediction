@@ -1,4 +1,4 @@
-.PHONY: dvc-add data data-sample lint train train-sample mlflow-local
+.PHONY: dvc-add data data-sample lint train train-sample mlflow-local start-app-local test
 
 PYTHON ?= .venv/bin/python
 RUFF ?= .venv/bin/ruff
@@ -6,6 +6,9 @@ DVC ?= .venv/bin/dvc
 SAMPLE_ROWS ?= 1000000
 PROCESSED_PATH ?= data/processed/fhvhv_tripdata_2026-05.parquet
 TRAIN_REPORT_PATH ?= data/reports/training_metrics.json
+
+test:
+	uv run pytest
 
 lint:
 	uv run pre-commit run --all-files
@@ -22,6 +25,9 @@ mlflow-local:
 
 mlflow-docker:
 	docker-compose -f infra/docker/mlflow-docker-compose.yaml up -d
+
+start-app-local:
+	uv run uvicorn taxi_trip_duration.app:app --host 127.0.0.1 --port 8000 --reload
 
 data:
 	PYTHONPATH=src $(PYTHON) -m taxi_trip_duration.data_pipeline

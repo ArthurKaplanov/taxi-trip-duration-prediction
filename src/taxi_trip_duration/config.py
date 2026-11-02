@@ -1,4 +1,9 @@
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -54,9 +59,21 @@ FEATURE_SETS = {
     ],
 }
 
+CATEGORICAL_FEATURES = [
+    "PULocationID",
+    "DOLocationID",
+    "route_id",
+    "pickup_borough",
+    "dropoff_borough",
+    "hvfhs_license_num",
+    "shared_request_flag",
+    "wav_request_flag",
+]
+
 FEATURE_SET_VERSION = "v1"
 
 TARGET_COLUMN = "target_duration_sec"
 
 MLFLOW_TRACKING_SERVER = "http://localhost:5005"
 EXPERIMENT_NAME = "taxi_trip_prediction"
+MODEL_URI = os.environ["MODEL_URI"]

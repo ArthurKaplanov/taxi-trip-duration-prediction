@@ -13,12 +13,14 @@ dependencies = [
     "numpy>=2.5.3",
     "pandas>=3.0.6",
     "pre-commit>=4.6.2",
+    "python-dotenv>=1.2.4",
     "scikit-learn>=1.5.0",
 ]
 
 [dependency-groups]
 dev = [
     "ipykernel>=7.4.0",
+    "pytest>=9.2.0",
     "ruff>=0.16.10",
 ]
 

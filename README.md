@@ -41,7 +41,12 @@ local server:
 make mlflow-local
 ```
 
-docker:
+**docker**:
 ```bash
 mlflow-docker
+```
+
+**запуск prediction service**
+```bash
+uv run uvicorn taxi_trip_duration.app:app     --host 127.0.0.1     --port 8000
 ```

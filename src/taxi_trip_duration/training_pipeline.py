@@ -15,6 +15,7 @@ from mlflow.exceptions import MlflowException
 from mlflow.models import infer_signature
 
 from taxi_trip_duration.config import (
+    CATEGORICAL_FEATURES,
     EXPERIMENT_NAME,
     FEATURE_SET_VERSION,
     FEATURE_SETS,
@@ -25,36 +26,12 @@ from taxi_trip_duration.config import (
     ZONE_LOOKUP_PATH,
 )
 from taxi_trip_duration.features_engineering import build_features
+from taxi_trip_duration.model_input import prepare_model_input
 from taxi_trip_duration.train import (
     calculate_metrics,
     time_split,
     train_catboost_regressor,
 )
-
-CATEGORICAL_FEATURES = [
-    "PULocationID",
-    "DOLocationID",
-    "route_id",
-    "pickup_borough",
-    "dropoff_borough",
-    "hvfhs_license_num",
-    "shared_request_flag",
-    "wav_request_flag",
-]
-
-
-def prepare_model_input(
-    df: pd.DataFrame,
-    feature_columns: list[str],
-    cat_features: list[str],
-) -> pd.DataFrame:
-    X = df[feature_columns].copy()
-
-    for column in cat_features:
-        if column in X.columns:
-            X[column] = X[column].astype(str)
-
-    return X
 
 
 def get_champion(client: MlflowClient, model_name: str):
@@ -206,15 +183,20 @@ def run_training_pipeline(
                 name="model",
                 signature=signature,
                 input_example=input_example,
+                metadata={
+                    "feature_set_version": feature_set_version,
+                    "feature_columns": feature_columns,
+                    "categorical_features": cat_features,
+                },
             )
 
             data_eval = pd.DataFrame(X_val)
-            data_eval["target"] = y_val
+            data_eval["target_duration_sec"] = y_val
 
             mlflow.models.evaluate(
                 model=model_catboost_info.model_uri,
                 data=data_eval,
-                targets="target",
+                targets="target_duration_sec",
                 model_type="regressor",
                 evaluator_config={"log_model_explainability": False},
             )
