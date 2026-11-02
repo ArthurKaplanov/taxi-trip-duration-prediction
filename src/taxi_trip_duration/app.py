@@ -6,13 +6,13 @@ from typing import Literal
 import mlflow
 import pandas as pd
 from fastapi import FastAPI, Request
+from loguru import logger
 from pydantic import BaseModel, Field
 
 from taxi_trip_duration.config import (
     CATEGORICAL_FEATURES,
     FEATURE_SET_VERSION,
     FEATURE_SETS,
-    MLFLOW_TRACKING_SERVER,
     MODEL_URI,
     ZONE_LOOKUP_PATH,
 )
@@ -37,43 +37,64 @@ class PredictionOutput(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    mlflow.set_tracking_uri(MLFLOW_TRACKING_SERVER)
+    logger.info("Starting Taxi Prediction Service")
+    logger.info("Loading model from {}", MODEL_URI)
 
-    # Загружаем модель один раз при старте приложения.
-    app.state.model = mlflow.pyfunc.load_model(MODEL_URI)
+    try:
+        # Загружаем модель из локального Docker-артефакта.
+        app.state.model = mlflow.pyfunc.load_model(MODEL_URI)
 
-    print(MODEL_URI)
-    if not app.state.model.metadata.metadata:
-        raise RuntimeError("Model has no serving contract metadata")
+        logger.info("Model successfully loaded")
 
-    expected = ModelContract(
-        feature_set_version=app.state.model.metadata.metadata["feature_set_version"],
-        feature_columns=app.state.model.metadata.metadata["feature_columns"],
-        categorical_features=app.state.model.metadata.metadata["categorical_features"],
-    )
+        metadata = app.state.model.metadata.metadata
 
-    actual = ModelContract(
-        feature_set_version=FEATURE_SET_VERSION,
-        feature_columns=FEATURE_SETS[FEATURE_SET_VERSION],
-        categorical_features=[
-            col
-            for col in CATEGORICAL_FEATURES
-            if col in FEATURE_SETS[FEATURE_SET_VERSION]
-        ],
-    )
+        if not metadata:
+            raise RuntimeError("Model has no serving contract metadata")
 
-    validate_model_contract(expected, actual)
+        expected = ModelContract(
+            feature_set_version=metadata["feature_set_version"],
+            feature_columns=metadata["feature_columns"],
+            categorical_features=metadata["categorical_features"],
+        )
 
-    # Загружаем справочник зон один раз.
-    df_zone_lookup = pd.read_csv(ZONE_LOOKUP_PATH)
-    df_zone_lookup = df_zone_lookup.fillna("Unknown")
-    df_zone_lookup = df_zone_lookup[["LocationID", "Borough", "Zone"]]
-    app.state.zone_lookup = df_zone_lookup
+        actual = ModelContract(
+            feature_set_version=FEATURE_SET_VERSION,
+            feature_columns=FEATURE_SETS[FEATURE_SET_VERSION],
+            categorical_features=[
+                col
+                for col in CATEGORICAL_FEATURES
+                if col in FEATURE_SETS[FEATURE_SET_VERSION]
+            ],
+        )
 
-    yield
+        validate_model_contract(expected, actual)
 
-    app.state.model = None
-    app.state.zone_lookup = None
+        logger.info("Model Contract validation passed")
+
+        # Загружаем Taxi Zones.
+        df_zone_lookup = pd.read_csv(ZONE_LOOKUP_PATH)
+        df_zone_lookup = df_zone_lookup.fillna("Unknown")
+        df_zone_lookup = df_zone_lookup[["LocationID", "Borough", "Zone"]]
+
+        app.state.zone_lookup = df_zone_lookup
+
+        logger.info(
+            "Taxi Zones loaded: {} zones",
+            len(df_zone_lookup),
+        )
+
+        logger.info("Application startup completed")
+
+    except Exception:
+        logger.exception("Application startup failed")
+        raise
+
+    try:
+        yield
+    finally:
+        logger.info("Shutting down Taxi Prediction Service")
+        app.state.model = None
+        app.state.zone_lookup = None
 
 
 app = FastAPI(
