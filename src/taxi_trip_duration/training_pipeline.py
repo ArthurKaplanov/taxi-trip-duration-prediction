@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import json
+import os
 from pathlib import Path
 
 import mlflow
@@ -11,7 +12,7 @@ import mlflow.data
 import pandas as pd
 from loguru import logger
 from mlflow.client import MlflowClient
-from mlflow.exceptions import MlflowException
+from mlflow.exceptions import MlflowException, RestException
 from mlflow.models import infer_signature
 
 from taxi_trip_duration.config import (
@@ -33,6 +34,8 @@ from taxi_trip_duration.train import (
     train_catboost_regressor,
 )
 
+os.environ["MLFLOW_DISABLE_TELEMETRY"] = "true"
+
 
 def get_champion(client: MlflowClient, model_name: str):
     try:
@@ -40,8 +43,12 @@ def get_champion(client: MlflowClient, model_name: str):
             name=model_name,
             alias="Champion",
         )
-    except MlflowException as exc:
-        if exc.error_code == "RESOURCE_DOES_NOT_EXIST":
+    except (MlflowException, RestException) as exc:  # Ловим оба типа исключений
+        # Проверяем код ошибки REST API или текст сообщения
+        if (
+            getattr(exc, "error_code", None) == "INVALID_PARAMETER_VALUE"
+            or "not found" in str(exc).lower()
+        ):
             return None
         raise
 
@@ -180,9 +187,9 @@ def run_training_pipeline(
 
             model_catboost_info = mlflow.catboost.log_model(
                 cb_model=catboost_model,
-                name="model",
                 signature=signature,
                 input_example=input_example,
+                artifact_path="model",
                 metadata={
                     "feature_set_version": feature_set_version,
                     "feature_columns": feature_columns,

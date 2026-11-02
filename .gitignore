@@ -19,3 +19,11 @@ wheels/
 *.db
 mlruns/
 models/
+
+#terraform
+terraform.tfvars
+terraform.tfstate
+.terraform.tfstate*
+.terraform
+variables.json
+key.json
