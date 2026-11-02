@@ -18,3 +18,4 @@ wheels/
 # mlflow
 *.db
 mlruns/
+models/
