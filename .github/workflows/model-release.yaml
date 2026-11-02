@@ -173,26 +173,50 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import math
+          import subprocess
           import time
           import urllib.request
+          import urllib.error
 
           base_url = "http://127.0.0.1:8000"
+          container_name = "taxi-prediction-test"
 
-          # Wait until the application is ready.
           for attempt in range(60):
+              # Проверяем, продолжает ли контейнер работать.
+              status = subprocess.run(
+                  [
+                      "docker", "inspect",
+                      "-f", "{{.State.Running}}",
+                      container_name,
+                  ],
+                  capture_output=True,
+                  text=True,
+              )
+
+              if status.stdout.strip() != "true":
+                  print("Container stopped unexpectedly")
+                  subprocess.run(["docker", "logs", container_name])
+                  raise RuntimeError("Container exited during startup")
+
               try:
                   with urllib.request.urlopen(
-                      f"{base_url}/health", timeout=3
+                      f"{base_url}/health",
+                      timeout=3,
                   ) as response:
                       health = json.load(response)
 
                   if health.get("model_loaded") is True:
+                      print("Health check passed")
                       break
-              except Exception:
-                  pass
+
+              except (urllib.error.URLError, TimeoutError) as exc:
+                  print(f"Health attempt {attempt + 1}: {exc}")
 
               time.sleep(2)
+
           else:
+              subprocess.run(["docker", "logs", container_name])
               raise RuntimeError("Service failed health check")
 
           payload = {
@@ -211,22 +235,16 @@ jobs:
               method="POST",
           )
 
-          with urllib.request.urlopen(
-              request, timeout=30
-          ) as response:
+          with urllib.request.urlopen(request, timeout=30) as response:
               prediction = json.load(response)
 
           duration = prediction["predicted_duration_sec"]
 
-          if not isinstance(duration, (float, int)):
-              raise AssertionError("Prediction is not numeric")
+          assert isinstance(duration, (float, int))
+          assert math.isfinite(duration)
+          assert duration > 0
 
-          import math
-          if not math.isfinite(duration) or duration <= 0:
-              raise AssertionError("Invalid prediction")
-
-          print("Smoke test passed")
-          print(prediction)
+          print("Prediction smoke test passed:", prediction)
           PY
 
       - name: Print container logs on failure
