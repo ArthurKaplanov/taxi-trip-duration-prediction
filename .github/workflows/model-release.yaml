@@ -158,19 +158,6 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=model-v${{ inputs.model_version }}
 
-      - name: Inspect container startup
-        run: |
-          echo "=== Docker containers ==="
-          docker ps -a
-
-          echo "=== Container status ==="
-          docker inspect taxi-prediction-test \
-            --format '{{json .State}}'
-
-          echo "=== Application logs ==="
-          docker logs --tail 100 taxi-prediction-test
-
-
       - name: Start container
         env:
           IMAGE_TAG: ${{ steps.image.outputs.tag }}
@@ -179,7 +166,6 @@ jobs:
             --name taxi-prediction-test \
             -p 8000:8000 \
             -e MODEL_URI=/app/models \
-            -e MLFLOW_TRACKING_SERVER=http://127.0.0.1:5005 \
             "$IMAGE_TAG"
 
       - name: Smoke test
@@ -190,13 +176,11 @@ jobs:
           import subprocess
           import time
           import urllib.request
-          import urllib.error
 
           base_url = "http://127.0.0.1:8000"
           container_name = "taxi-prediction-test"
 
           for attempt in range(60):
-              # Проверяем, продолжает ли контейнер работать.
               status = subprocess.run(
                   [
                       "docker", "inspect",
@@ -208,7 +192,6 @@ jobs:
               )
 
               if status.stdout.strip() != "true":
-                  print("Container stopped unexpectedly")
                   subprocess.run(["docker", "logs", container_name])
                   raise RuntimeError("Container exited during startup")
 
@@ -220,10 +203,14 @@ jobs:
                       health = json.load(response)
 
                   if health.get("model_loaded") is True:
-                      print("Health check passed")
+                      print("Health check passed", flush=True)
                       break
+
               except OSError as exc:
-                  print(f"Health attempt {attempt + 1}: {exc}", flush=True)
+                  print(
+                      f"Health attempt {attempt + 1}: {exc}",
+                      flush=True,
+                  )
 
               time.sleep(2)
 
@@ -247,7 +234,10 @@ jobs:
               method="POST",
           )
 
-          with urllib.request.urlopen(request, timeout=30) as response:
+          with urllib.request.urlopen(
+              request,
+              timeout=30,
+          ) as response:
               prediction = json.load(response)
 
           duration = prediction["predicted_duration_sec"]
@@ -262,25 +252,26 @@ jobs:
       - name: Diagnose container on failure
         if: failure()
         run: |
+          echo "=== Docker containers ==="
           docker ps -a
+
+          echo "=== Container state ==="
           docker inspect taxi-prediction-test \
             --format '{{json .State}}' || true
+
+          echo "=== Application logs ==="
           docker logs --tail 150 taxi-prediction-test || true
 
-            - name: Print container logs on failure
-              if: failure()
-              run: docker logs taxi-prediction-test || true
+      - name: Login to Yandex Container Registry
+        uses: yc-actions/yc-cr-login@v3
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
 
-            - name: Login to Yandex Container Registry
-              uses: yc-actions/yc-cr-login@v3
-              with:
-                yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
-
-            - name: Push verified image
-              env:
-                IMAGE_TAG: ${{ steps.image.outputs.tag }}
-              run: |
-                docker push "$IMAGE_TAG"
+      - name: Push verified image
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          docker push "$IMAGE_TAG"
 
       - name: Write release summary
         env:
@@ -298,4 +289,5 @@ jobs:
 
       - name: Stop test container
         if: always()
-        run: docker rm -f taxi-prediction-test || true
+        run: |
+          docker rm -f taxi-prediction-test || true
