@@ -74,7 +74,7 @@ FEATURE_SET_VERSION = "v1"
 
 TARGET_COLUMN = "target_duration_sec"
 
-MLFLOW_TRACKING_SERVER = os.environ["MLFLOW_TRACKING_URI"]
+MLFLOW_TRACKING_SERVER = os.getenv("MLFLOW_TRACKING_URI")
 EXPERIMENT_NAME = "taxi_trip_prediction"
 MODEL_URI = os.environ["MODEL_URI"]
 
