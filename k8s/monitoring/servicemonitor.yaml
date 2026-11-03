@@ -1,0 +1,26 @@
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+
+metadata:
+  name: taxi-prediction
+  namespace: monitoring
+
+  labels:
+    release: monitoring
+    app: taxi-prediction
+
+spec:
+  namespaceSelector:
+    matchNames:
+      - taxi-ml
+
+  selector:
+    matchLabels:
+      app: taxi-prediction
+
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 5s

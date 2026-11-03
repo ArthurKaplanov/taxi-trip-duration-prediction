@@ -1,4 +1,4 @@
-"""Simple training pipeline for the taxi trip duration model."""
+"""Training pipeline for the taxi trip duration model."""
 
 import argparse
 import datetime
@@ -53,15 +53,16 @@ def get_champion(client: MlflowClient, model_name: str):
         raise
 
 
-def compare_and_promote(
+def evaluate_and_register_candidate(
     model_name: str,
     challenger_model_uri: str,
     X_val,
     y_val,
-    min_improvement: float = 0.0,
-):
-    client = MlflowClient()
+    min_improvement: float = 5.0,
+) -> dict:
+    """Evaluate challenger without changing Champion alias."""
 
+    client = MlflowClient()
     champion = get_champion(client, model_name)
 
     challenger_model = mlflow.pyfunc.load_model(challenger_model_uri)
@@ -69,55 +70,42 @@ def compare_and_promote(
 
     challenger_mae = calculate_metrics(y_val, challenger_predictions)["mae"]
 
+    champion_mae = None
+
     if champion is None:
-        # Bootstrap: первая модель
-        registered = mlflow.register_model(
-            model_uri=challenger_model_uri,
-            name=model_name,
+        approved = True
+        decision = "initial_candidate"
+    else:
+        champion_model = mlflow.pyfunc.load_model(
+            f"models:/{model_name}/{champion.version}"
         )
 
-        client.set_registered_model_alias(
-            name=model_name,
-            alias="Champion",
-            version=registered.version,
-        )
+        champion_predictions = champion_model.predict(X_val)
 
-        return {
-            "decision": "initial_champion",
-            "version": registered.version,
-            "challenger_mae": challenger_mae,
-        }
+        champion_mae = calculate_metrics(y_val, champion_predictions)["mae"]
 
-    champion_model = mlflow.pyfunc.load_model(
-        f"models:/{model_name}/{champion.version}"
+        approved = challenger_mae < champion_mae - min_improvement
+
+        decision = "approved" if approved else "rejected"
+
+    # Register every candidate for traceability.
+    registered = mlflow.register_model(
+        model_uri=challenger_model_uri,
+        name=model_name,
     )
 
-    champion_predictions = champion_model.predict(X_val)
-
-    champion_mae = calculate_metrics(y_val, champion_predictions)["mae"]
-
-    if challenger_mae < champion_mae - min_improvement:
-        registered = mlflow.register_model(
-            model_uri=challenger_model_uri,
-            name=model_name,
-        )
-
-        client.set_registered_model_alias(
-            name=model_name,
-            alias="Champion",
-            version=registered.version,
-        )
-
-        return {
-            "decision": "promoted",
-            "version": registered.version,
-            "champion_mae": champion_mae,
-            "challenger_mae": challenger_mae,
-        }
+    client.set_model_version_tag(
+        name=model_name,
+        version=registered.version,
+        key="quality_gate",
+        value=decision,
+    )
 
     return {
-        "decision": "rejected",
-        "version": champion.version,
+        "decision": decision,
+        "approved": approved,
+        "candidate_version": registered.version,
+        "champion_version": (champion.version if champion else None),
         "champion_mae": champion_mae,
         "challenger_mae": challenger_mae,
     }
@@ -137,7 +125,7 @@ def run_training_pipeline(
 
     logger.info("Starting MLflow run")
 
-    with mlflow.start_run(run_name=RUN_NAME):
+    with mlflow.start_run(run_name=RUN_NAME) as run:
         try:
             mlflow.set_tags(
                 {"features_version": feature_set_version, "model_type": "catboost"}
@@ -149,8 +137,6 @@ def run_training_pipeline(
             df_zone_lookup = df_zone_lookup[["LocationID", "Borough", "Zone"]]
 
             df = build_features(df, df_zone_lookup)
-
-            df.to_parquet("data/processed/fhvhv_tripdata_2026-05_test.parquet")
 
             if TARGET_COLUMN not in df.columns:
                 raise ValueError(f"Missing target column: {TARGET_COLUMN}")
@@ -271,8 +257,7 @@ def run_training_pipeline(
                 json.dumps(report, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
-
-            decision = compare_and_promote(
+            decision = evaluate_and_register_candidate(
                 model_name=f"{EXPERIMENT_NAME}_model",
                 challenger_model_uri=model_catboost_info.model_uri,
                 X_val=X_val,
@@ -287,7 +272,13 @@ def run_training_pipeline(
 
             logger.info(f"Promotion decision: {decision}")
 
-            return report
+            return {
+                "run_id": run.info.run_id,
+                "model_name": f"{EXPERIMENT_NAME}_model",
+                "feature_set_version": feature_set_version,
+                "metrics": report["metrics"],
+                **decision,
+            }
         except Exception as ex:
             logger.exception(f"Error during MLflow run: {str(ex)}")
             raise
@@ -299,6 +290,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--zone-lookup-path", type=Path, default=ZONE_LOOKUP_PATH)
     parser.add_argument("--report-path", type=Path, default=TRAINING_REPORT_PATH)
     parser.add_argument("--feature-set-version", default=FEATURE_SET_VERSION)
+    parser.add_argument(
+        "--result-path",
+        type=Path,
+        default=None,
+    )
     return parser.parse_args()
 
 
@@ -306,7 +302,18 @@ if __name__ == "__main__":
     args = parse_args()
     training_report = run_training_pipeline(
         processed_data_path=args.processed_path,
+        zone_lookup_path=args.zone_lookup_path,
         report_path=args.report_path,
         feature_set_version=args.feature_set_version,
     )
+    if args.result_path is not None:
+        args.result_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        args.result_path.write_text(
+            json.dumps(training_report, ensure_ascii=False),
+            encoding="utf-8",
+        )
     print(json.dumps(training_report, indent=2, ensure_ascii=False))

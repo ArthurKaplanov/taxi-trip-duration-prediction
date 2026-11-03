@@ -1,5 +1,5 @@
 outs:
-- md5: e3dfbd82f0626d399a7ec79bf4efc32f
-  size: 4750028
+- md5: a8c0a50f49d99fbe658630e3491956f7
+  size: 6798388
   hash: md5
   path: fhvhv_tripdata_2026-05_sample.parquet

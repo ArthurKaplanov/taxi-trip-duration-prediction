@@ -34,7 +34,7 @@ spec:
         - name: taxi-api
 
           # Replace with published image
-          image: cr.yandex/crpkop984k0letp5qrmj/taxi-prediction:model-v1-95e11af2de57
+          image: cr.yandex/crpkop984k0letp5qrmj/taxi-prediction:model-v1-4329cb625432
           imagePullPolicy: IfNotPresent
 
           ports:

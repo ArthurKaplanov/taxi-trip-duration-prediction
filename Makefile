@@ -63,7 +63,7 @@ port-forward:
 	kubectl port-forward \
 	-n taxi-ml \
 	svc/taxi-prediction \
-	8000:80
+	8008:80
 
 monitoring:
 	kubectl create namespace monitoring
@@ -83,3 +83,7 @@ monitoring-port-forward:
 	-n monitoring \
 	svc/monitoring-kube-prometheus-prometheus \
 	9090:9090
+
+deploy-monitoring:
+	kubectl apply -f k8s/monitoring/servicemonitor.yaml
+	kubectl apply -f k8s/monitoring/prometheus-rules.yaml

@@ -1,0 +1,59 @@
+apiVersion: batch/v1
+kind: Job
+
+metadata:
+  name: taxi-training-test
+  namespace: taxi-training
+
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+
+  template:
+    spec:
+      restartPolicy: Never
+
+      containers:
+        - name: training
+          image: cr.yandex/crpkop984k0letp5qrmj/taxi-training:v2
+          imagePullPolicy: IfNotPresent
+
+          command:
+            - /bin/sh
+            - -ec
+
+          args:
+            - |
+              echo "Pulling data from S3..."
+              dvc pull
+
+              echo "Starting model training..."
+              python -m taxi_trip_duration.training_pipeline \
+                --processed-path /app/data/processed/fhvhv_tripdata_2026-05_sample.parquet \
+                --zone-lookup-path /app/data/raw/taxi_zone_lookup.csv \
+                --result-path /tmp/training_result.json
+
+              cat /tmp/training_result.json
+
+          envFrom:
+            - secretRef:
+                name: taxi-training-secrets
+
+          env:
+            - name: AWS_DEFAULT_REGION
+              value: ru-central1
+
+            - name: AWS_ENDPOINT_URL
+              value: https://storage.yandexcloud.net
+
+            - name: PYTHONUNBUFFERED
+              value: "1"
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+
+            limits:
+              cpu: "1500m"
+              memory: "3Gi"

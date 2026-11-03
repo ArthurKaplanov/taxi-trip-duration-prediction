@@ -470,70 +470,70 @@ resource "null_resource" "update_env_postgres" {
 //
 //Airflow
 //
-# resource "yandex_airflow_cluster" "airflow" {
-#   airflow_version    = "2.11"
-#   name               = var.airfow_name
-#   service_account_id = yandex_iam_service_account.airflow-sa.id
-#   admin_password     = var.admin_password
-#   subnet_ids         = [var.yc_subnet_name]
-#   security_group_ids = [
-#     yandex_vpc_security_group.airflow_sg.id
-#   ]
+resource "yandex_airflow_cluster" "airflow" {
+  airflow_version    = "2.11"
+  name               = var.airfow_name
+  service_account_id = yandex_iam_service_account.airflow-sa.id
+  admin_password     = var.admin_password
+  subnet_ids         = [var.yc_subnet_name]
+  security_group_ids = [
+    yandex_vpc_security_group.airflow_sg.id
+  ]
 
-#   code_sync = {
-#     s3 = {
-#       bucket = var.s3_dag_bucket_name
-#     }
-#   }
+  code_sync = {
+    s3 = {
+      bucket = var.s3_dag_bucket_name
+    }
+  }
 
-#   scheduler = {
-#     count              = 1
-#     resource_preset_id = "c2-m4"
-#   }
+  scheduler = {
+    count              = 1
+    resource_preset_id = "c2-m4"
+  }
 
-#   webserver = {
-#     count              = 1
-#     resource_preset_id = "c2-m4"
-#   }
+  webserver = {
+    count              = 1
+    resource_preset_id = "c2-m4"
+  }
 
-#   worker = {
-#     min_count          = 0
-#     max_count          = 4
-#     resource_preset_id = "c2-m8"
-#   }
+  worker = {
+    min_count          = 0
+    max_count          = 4
+    resource_preset_id = "c2-m8"
+  }
 
-#   airflow_config = {
-#     "api" = {
-#       "auth_backends" = "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
-#     }
-#     "scheduler" = {
-#       "dag_dir_list_interval" = "10"
-#     }
-#   }
+  airflow_config = {
+    "api" = {
+      "auth_backends" = "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
+    }
+    "scheduler" = {
+      "dag_dir_list_interval" = "10"
+    }
+  }
 
-#   logging = {
-#     enabled   = true
-#     folder_id = var.yc_config.folder_id
-#     min_level = "INFO"
-#   }
+  logging = {
+    enabled   = false
+    folder_id = var.yc_config.folder_id
+    min_level = "INFO"
+  }
 
-#   depends_on = [
-#     yandex_resourcemanager_folder_iam_member.airflow_sa_roles
-#   ]
-# }
+  depends_on = [
+    yandex_resourcemanager_folder_iam_member.airflow_sa_roles
+  ]
+}
 
-# resource "local_sensitive_file" "airflow_config" {
-#   content = jsonencode({
-#     YC_ZONE              = var.yc_config.zone
-#     YC_DATAPROC_SA_ID    = yandex_iam_service_account.dataproc-sa.id
-#     YC_SUBNET_ID         = var.yc_subnet_name
-#     YC_SECURITY_GROUP_ID = yandex_vpc_security_group.dataproc_sg.id
-#     YC_BUCKET_NAME       = var.s3_dag_bucket_name
-#     SSH_PUBLIC_KEY       = file(pathexpand(var.public_key_path))
-#   })
-#   filename        = "${path.module}/airflow_config.json"
-#   file_permission = "0600"
-# }
+resource "local_sensitive_file" "airflow_config" {
+  content = jsonencode({
+    YC_ZONE              = var.yc_config.zone
+    YC_DATAPROC_SA_ID    = yandex_iam_service_account.dataproc-sa.id
+    YC_SUBNET_ID         = var.yc_subnet_name
+    YC_SECURITY_GROUP_ID = yandex_vpc_security_group.dataproc_sg.id
+    YC_BUCKET_NAME       = var.s3_dag_bucket_name
+    SSH_PUBLIC_KEY       = file(pathexpand(var.public_key_path))
+  })
+  filename        = "${path.module}/airflow_config.json"
+  file_permission = "0600"
+}
 
 
 

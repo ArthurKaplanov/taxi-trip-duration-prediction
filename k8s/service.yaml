@@ -5,6 +5,8 @@ kind: Service
 metadata:
   name: taxi-prediction
   namespace: taxi-ml
+  labels:
+    app: taxi-prediction
 
 spec:
   type: ClusterIP

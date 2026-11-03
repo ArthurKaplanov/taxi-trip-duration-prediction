@@ -25,5 +25,5 @@ data/reports/
 
 .dvc/cache/
 .dvc/tmp/
-
-README.md
+.dvc/config.local
+.dvc/tmp/
