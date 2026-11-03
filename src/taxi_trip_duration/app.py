@@ -7,6 +7,7 @@ import mlflow
 import pandas as pd
 from fastapi import FastAPI, Request
 from loguru import logger
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel, Field
 
 from taxi_trip_duration.config import (
@@ -140,3 +141,17 @@ def health_check(request: Request):
         "model_loaded": request.app.state.model is not None,
         "timestamp": datetime.now(timezone.utc),
     }
+
+
+Instrumentator(
+    should_group_status_codes=False,
+    should_ignore_untemplated=True,
+    excluded_handlers=[
+        "/metrics",
+        "/health",
+    ],
+).instrument(app).expose(
+    app,
+    endpoint="/metrics",
+    include_in_schema=False,
+)

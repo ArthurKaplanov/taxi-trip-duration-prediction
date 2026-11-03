@@ -1,0 +1,41 @@
+
+# Prometheus
+prometheus:
+  prometheusSpec:
+    retention: 3d
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1536Mi
+
+    serviceMonitorSelectorNilUsesHelmValues: false
+
+# Grafana
+grafana:
+  enabled: true
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 512Mi
+
+  persistence:
+    enabled: false
+
+# Alertmanager
+alertmanager:
+  enabled: true
+
+# Kubernetes metrics
+kubeStateMetrics:
+  enabled: true
+
+nodeExporter:
+  enabled: true

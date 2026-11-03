@@ -72,17 +72,17 @@ resource "yandex_storage_bucket_iam_binding" "dataproc_storage" {
 // Сети
 //
 # Network ресурсы
-resource "yandex_vpc_network" "common_network" {
-  name = var.yc_network_name
-}
+# resource "yandex_vpc_network" "common_network" {
+#   name = var.yc_network_name
+# }
 
-resource "yandex_vpc_subnet" "subnet" {
-  name           = var.yc_subnet_name
-  zone           = var.yc_config.zone
-  network_id     = yandex_vpc_network.common_network.id
-  v4_cidr_blocks = [var.yc_subnet_range]
-  route_table_id = yandex_vpc_route_table.route_table.id
-}
+# resource "yandex_vpc_subnet" "subnet" {
+#   name           = var.yc_subnet_name
+#   zone           = var.yc_config.zone
+#   network_id     = yandex_vpc_network.common_network.id
+#   v4_cidr_blocks = [var.yc_subnet_range]
+#   route_table_id = yandex_vpc_route_table.route_table.id
+# }
 
 resource "yandex_vpc_gateway" "nat_gateway" {
   name = var.yc_nat_gateway_name
@@ -91,7 +91,7 @@ resource "yandex_vpc_gateway" "nat_gateway" {
 
 resource "yandex_vpc_route_table" "route_table" {
   name       = var.yc_route_table_name
-  network_id = yandex_vpc_network.common_network.id
+  network_id = var.yc_network_name
 
   static_route {
     destination_prefix = "0.0.0.0/0"
@@ -102,7 +102,7 @@ resource "yandex_vpc_route_table" "route_table" {
 resource "yandex_vpc_security_group" "mlflow_sg" {
   name        = var.yc_mlflow_security_group_name
   description = "Security group for mlflow"
-  network_id  = yandex_vpc_network.common_network.id
+  network_id  = var.yc_network_name
 
   ingress {
     # можно подключится по ssh
@@ -133,7 +133,7 @@ resource "yandex_vpc_security_group" "mlflow_sg" {
 resource "yandex_vpc_security_group" "postgres_sg" {
   name        = var.yc_postgres_security_group_name
   description = "Security group for postgres"
-  network_id  = yandex_vpc_network.common_network.id
+  network_id  = var.yc_network_name
 
   ingress {
     protocol    = "TCP"
@@ -165,7 +165,7 @@ resource "yandex_vpc_security_group" "postgres_sg" {
 resource "yandex_vpc_security_group" "airflow_sg" {
   name        = var.yc_airflow_security_group_name
   description = "Security group for airflow"
-  network_id  = yandex_vpc_network.common_network.id
+  network_id  = var.yc_network_name
 
   egress {
     protocol       = "TCP"
@@ -179,7 +179,7 @@ resource "yandex_vpc_security_group" "airflow_sg" {
 resource "yandex_vpc_security_group" "dataproc_sg" {
   name        = var.yc_dataproc_security_group_name
   description = "Security group for dataproc"
-  network_id  = yandex_vpc_network.common_network.id
+  network_id  = var.yc_network_name
 
   ingress {
     protocol          = "ANY"
@@ -249,7 +249,7 @@ resource "yandex_compute_instance" "mlflow_server" {
   }
 
   network_interface {
-    subnet_id = yandex_vpc_subnet.subnet.id
+    subnet_id = var.yc_subnet_name
     nat       = true
     security_group_ids = [
       yandex_vpc_security_group.mlflow_sg.id
@@ -324,10 +324,10 @@ resource "null_resource" "update_env_mlflow" {
       MLFLOW_TRACKING_URI=http://${yandex_compute_instance.mlflow_server.network_interface.0.nat_ip_address}:${var.mlflow_port}
 
       # Добавляем или обновляем переменную MLFLOW_TRACKING_URI в .env файле
-      if grep -q "^MLFLOW_TRACKING_URI=" ../.env; then
-        sed -i "s|^MLFLOW_TRACKING_URI=.*|MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI|" ../.env
+      if grep -q "^MLFLOW_TRACKING_URI=" ../../.env; then
+        sed -i "s|^MLFLOW_TRACKING_URI=.*|MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI|" ../../.env
       else
-        echo "MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI" >> ../.env
+        echo "MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI" >> ../../.env
       fi
     EOT
   }
@@ -343,7 +343,7 @@ resource "null_resource" "update_env_mlflow" {
 resource "yandex_mdb_postgresql_cluster" "postgres_cluster" {
   name                = var.yc_postgres_cluster_name
   environment         = "PRODUCTION"
-  network_id          = yandex_vpc_network.common_network.id
+  network_id          = var.yc_network_name
   security_group_ids  = [yandex_vpc_security_group.postgres_sg.id]
   deletion_protection = var.deletion_protection
 
@@ -376,7 +376,7 @@ resource "yandex_mdb_postgresql_cluster" "postgres_cluster" {
 
   host {
     zone             = var.yc_config.zone
-    subnet_id        = yandex_vpc_subnet.subnet.id
+    subnet_id        = var.yc_subnet_name
     assign_public_ip = var.assign_public_ip
   }
 
@@ -475,7 +475,7 @@ resource "null_resource" "update_env_postgres" {
 #   name               = var.airfow_name
 #   service_account_id = yandex_iam_service_account.airflow-sa.id
 #   admin_password     = var.admin_password
-#   subnet_ids         = [yandex_vpc_subnet.subnet.id]
+#   subnet_ids         = [var.yc_subnet_name]
 #   security_group_ids = [
 #     yandex_vpc_security_group.airflow_sg.id
 #   ]
@@ -526,7 +526,7 @@ resource "null_resource" "update_env_postgres" {
 #   content = jsonencode({
 #     YC_ZONE              = var.yc_config.zone
 #     YC_DATAPROC_SA_ID    = yandex_iam_service_account.dataproc-sa.id
-#     YC_SUBNET_ID         = yandex_vpc_subnet.subnet.id
+#     YC_SUBNET_ID         = var.yc_subnet_name
 #     YC_SECURITY_GROUP_ID = yandex_vpc_security_group.dataproc_sg.id
 #     YC_BUCKET_NAME       = var.s3_dag_bucket_name
 #     SSH_PUBLIC_KEY       = file(pathexpand(var.public_key_path))
@@ -542,7 +542,7 @@ resource "local_file" "variables_file" {
     # общие переменные
     YC_ZONE           = var.yc_config.zone
     YC_FOLDER_ID      = var.yc_config.folder_id
-    YC_SUBNET_ID      = yandex_vpc_subnet.subnet.id
+    YC_SUBNET_ID      = var.yc_subnet_name
     YC_SSH_PUBLIC_KEY = file(pathexpand(var.public_key_path))
     # S3
     S3_ENDPOINT_URL = var.s3_endpoint_url

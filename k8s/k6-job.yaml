@@ -1,0 +1,39 @@
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: taxi-k6-test
+  namespace: taxi-ml
+
+spec:
+  backoffLimit: 0
+
+  template:
+    spec:
+      restartPolicy: Never
+
+      containers:
+        - name: k6
+          image: grafana/k6:latest
+
+          args:
+            - run
+            - /scripts/predict.js
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+
+      volumes:
+        - name: scripts
+          configMap:
+            name: taxi-k6-scripts

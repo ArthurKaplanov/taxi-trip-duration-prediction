@@ -1,4 +1,4 @@
-.PHONY: dvc-add data data-sample lint train train-sample mlflow-local start-app-local test build-app run-app
+.PHONY: dvc-add data data-sample lint train train-sample mlflow-local start-app-local test build-app run-app deploy-app monitoring port-forward monitoring-port-forward
 
 PYTHON ?= .venv/bin/python
 RUFF ?= .venv/bin/ruff
@@ -57,10 +57,29 @@ deploy-app:
 	kubectl apply -f k8s/namespace.yaml
 	kubectl apply -f k8s/deployment.yaml
 	kubectl apply -f k8s/service.yaml
-	kubectl apply -f hpa.yaml
+	kubectl apply -f k8s/hpa.yaml
 
 port-forward:
 	kubectl port-forward \
 	-n taxi-ml \
 	svc/taxi-prediction \
 	8000:80
+
+monitoring:
+	kubectl create namespace monitoring
+	helm upgrade --install monitoring \
+	prometheus-community/kube-prometheus-stack \
+	--namespace monitoring \
+	--values k8s/monitoring/values.yaml \
+	--wait \
+	--timeout 10m
+
+monitoring-port-forward:
+	kubectl port-forward \
+	-n monitoring \
+	svc/monitoring-grafana \
+	3000:80
+	kubectl port-forward \
+	-n monitoring \
+	svc/monitoring-kube-prometheus-prometheus \
+	9090:9090
