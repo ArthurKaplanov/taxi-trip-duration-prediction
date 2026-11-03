@@ -43,7 +43,22 @@ jobs:
             -n taxi-ml | grep -qx yes
 
           echo "Checking port-forward permissions..."
-          kubectl auth can-i create pods/portforward \
+          kubectl auth can-i create pods \
+            --subresource=portforward \
             -n taxi-ml | grep -qx yes
 
           echo "Kubernetes connection: SUCCESS"
+      - name: Verify Kubernetes identity and permissions
+        run: |
+          set -euo pipefail
+
+          echo "=== Identity ==="
+          kubectl auth whoami
+
+          echo "=== Permissions ==="
+          kubectl auth can-i get pods -n taxi-ml
+          kubectl auth can-i patch deployments -n taxi-ml
+          kubectl auth can-i create pods/portforward -n taxi-ml
+
+          echo "=== Effective RBAC ==="
+          kubectl auth can-i --list -n taxi-ml
