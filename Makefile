@@ -87,3 +87,7 @@ monitoring-port-forward:
 deploy-monitoring:
 	kubectl apply -f k8s/monitoring/servicemonitor.yaml
 	kubectl apply -f k8s/monitoring/prometheus-rules.yaml
+
+deploy-training:
+	kubectl create namespace taxi-training \
+  	--dry-run=client -o yaml | kubectl apply -f -

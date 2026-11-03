@@ -15,7 +15,7 @@ spec:
 
       containers:
         - name: training
-          image: cr.yandex/crpkop984k0letp5qrmj/taxi-training:v2
+          image: cr.yandex/crpkop984k0letp5qrmj/taxi-training:v5
           imagePullPolicy: IfNotPresent
 
           command:

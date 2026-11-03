@@ -15,13 +15,20 @@ notebooks/
 tests/
 scripts/
 
+# Игнорируем содержимое папок (используем /*)
 data/raw/*
+data/processed/*
+data/reports/*
+
+# Возвращаем нужный CSV-файл
 !data/raw/taxi_zone_lookup.csv
-data/processed/
-data/reports/
+
+# Возвращаем .dvc файлы из конкретных папок
+!data/raw/*.dvc
+!data/processed/*.dvc
+!data/reports/*.dvc
 
 *.parquet
-*.parquet.dvc
 
 .dvc/cache/
 .dvc/tmp/

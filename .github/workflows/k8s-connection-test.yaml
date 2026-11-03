@@ -1,0 +1,49 @@
+
+name: Test Kubernetes Connection
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-kubernetes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.35.0
+
+      - name: Configure Kubernetes
+        env:
+          KUBECONFIG_B64: ${{ secrets.K8S_KUBECONFIG_B64 }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$RUNNER_TEMP/kube"
+
+          printf '%s' "$KUBECONFIG_B64" \
+            | base64 --decode \
+            > "$RUNNER_TEMP/kube/config"
+
+          chmod 600 "$RUNNER_TEMP/kube/config"
+
+          export KUBECONFIG="$RUNNER_TEMP/kube/config"
+
+          echo "Checking cluster access..."
+          kubectl get deployment taxi-prediction \
+            -n taxi-ml
+
+          echo "Checking deployment permissions..."
+          kubectl auth can-i patch deployments \
+            -n taxi-ml | grep -qx yes
+
+          echo "Checking port-forward permissions..."
+          kubectl auth can-i create pods/portforward \
+            -n taxi-ml | grep -qx yes
+
+          echo "Kubernetes connection: SUCCESS"

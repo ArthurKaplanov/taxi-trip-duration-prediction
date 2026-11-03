@@ -10,7 +10,7 @@ from kubernetes.client import models as k8s
 
 
 TRAINING_IMAGE = (
-    "cr.yandex/REGISTRY_ID/taxi-training:VERSION"
+    "cr.yandex/crpkop984k0letp5qrmj/taxi-training:v5"
 )
 
 with DAG(
@@ -47,6 +47,7 @@ with DAG(
             dvc pull
 
             python -m taxi_trip_duration.training_pipeline \
+              --processed-path /app/data/processed/fhvhv_tripdata_2026-05_sample.parquet \
               --result-path /airflow/xcom/return.json
             """
         ],

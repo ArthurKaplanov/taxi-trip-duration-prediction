@@ -1,0 +1,42 @@
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: airflow-training
+  namespace: taxi-training
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: airflow-training
+  namespace: taxi-training
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: airflow-training
+  namespace: taxi-training
+subjects:
+  - kind: ServiceAccount
+    name: airflow-training
+    namespace: taxi-training
+roleRef:
+  kind: Role
+  name: airflow-training
+  apiGroup: rbac.authorization.k8s.io

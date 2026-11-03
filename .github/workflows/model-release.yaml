@@ -7,8 +7,19 @@ on:
       model_version:
         description: "MLflow Model Registry version"
         required: true
-        default: "1"
         type: string
+
+      deploy:
+        description: "Deploy verified image to Kubernetes"
+        required: true
+        type: boolean
+        default: false
+
+      check_k8s:
+        description: "Check Kubernetes access without deployment"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -94,6 +105,47 @@ jobs:
               raise RuntimeError("Missing CatBoost artifact")
 
           print("MLflow model successfully downloaded")
+          PY
+
+
+      - name: Verify deployment approval
+        if: ${{ inputs.deploy }}
+        run: |
+          uv run --no-sync python - <<'PY'
+          import os
+
+          import mlflow
+          from mlflow import MlflowClient
+
+          mlflow.set_tracking_uri(
+              os.environ["MLFLOW_TRACKING_URI"]
+          )
+
+          client = MlflowClient()
+
+          version = client.get_model_version(
+              name=os.environ["MODEL_NAME"],
+              version=os.environ["MODEL_VERSION"],
+          )
+
+          quality_gate = version.tags.get("quality_gate")
+          dataset_scope = version.tags.get("dataset_scope")
+
+          if quality_gate not in ("approved", "initial_candidate"):
+              raise RuntimeError(
+                  f"Model version {version.version} is not approved: "
+                  f"{quality_gate}"
+              )
+
+          if dataset_scope != "production":
+              raise RuntimeError(
+                  "Deployment blocked: model was not evaluated "
+                  "on an approved production dataset"
+              )
+
+          print(
+              f"Model v{version.version} passed release checks"
+          )
           PY
 
       - name: Record release metadata
@@ -272,6 +324,310 @@ jobs:
           IMAGE_TAG: ${{ steps.image.outputs.tag }}
         run: |
           docker push "$IMAGE_TAG"
+
+
+      - name: Install kubectl
+        if: ${{ inputs.deploy }}
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.35.0
+
+      - name: Configure Kubernetes access
+        if: ${{ inputs.deploy }}
+        env:
+          KUBECONFIG_B64: ${{ secrets.K8S_KUBECONFIG_B64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/kube"
+          chmod 700 "$RUNNER_TEMP/kube"
+
+          printf '%s' "$KUBECONFIG_B64" \
+            | base64 --decode \
+            > "$RUNNER_TEMP/kube/config"
+
+          chmod 600 "$RUNNER_TEMP/kube/config"
+
+          echo "KUBECONFIG=$RUNNER_TEMP/kube/config" \
+            >> "$GITHUB_ENV"
+
+          kubectl auth can-i patch deployments \
+            -n taxi-ml
+
+
+      - name: Deploy and verify model
+        if: ${{ inputs.deploy == true }}
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          NAMESPACE="taxi-ml"
+          DEPLOYMENT="taxi-prediction"
+          CONTAINER="taxi-prediction"
+          SERVICE="taxi-prediction"
+
+          PORT_FORWARD_PID=""
+          DEPLOY_STARTED=false
+
+          echo "=== Deployment configuration ==="
+
+          kubectl get deployment "$DEPLOYMENT" \
+            -n "$NAMESPACE"
+
+          # Save the exact image currently deployed.
+          PREVIOUS_IMAGE=$(
+            kubectl get deployment "$DEPLOYMENT" \
+              -n "$NAMESPACE" \
+              -o jsonpath="{.spec.template.spec.containers[?(@.name=='$CONTAINER')].image}"
+          )
+
+          if [ -z "$PREVIOUS_IMAGE" ]; then
+            echo "ERROR: Previous image not found"
+            exit 1
+          fi
+
+          echo "Previous image: $PREVIOUS_IMAGE"
+          echo "Candidate image: $IMAGE_TAG"
+
+          # Preserve the current MLflow Champion.
+          PREVIOUS_CHAMPION=$(
+            uv run --no-sync python - <<'PY'
+          import os
+          import mlflow
+          from mlflow import MlflowClient
+          from mlflow.exceptions import MlflowException
+
+          mlflow.set_tracking_uri(
+              os.environ["MLFLOW_TRACKING_URI"]
+          )
+
+          client = MlflowClient()
+
+          try:
+              champion = client.get_model_version_by_alias(
+                  name=os.environ["MODEL_NAME"],
+                  alias="Champion",
+              )
+              print(champion.version)
+          except MlflowException as exc:
+              if "not found" in str(exc).lower():
+                  print("")
+              else:
+                  raise
+          PY
+          )
+
+          echo "Previous Champion: ${PREVIOUS_CHAMPION:-none}"
+
+          cleanup() {
+            if [ -n "$PORT_FORWARD_PID" ]; then
+              kill "$PORT_FORWARD_PID" 2>/dev/null || true
+              wait "$PORT_FORWARD_PID" 2>/dev/null || true
+            fi
+          }
+
+          handle_exit() {
+            local exit_code=$?
+
+            trap - EXIT
+            cleanup
+
+            if [ "$exit_code" -ne 0 ] &&
+               [ "$DEPLOY_STARTED" = true ]; then
+
+              echo "ERROR: Release failed."
+              echo "Restoring previous deployment image..."
+
+              kubectl set image \
+                "deployment/$DEPLOYMENT" \
+                "$CONTAINER=$PREVIOUS_IMAGE" \
+                -n "$NAMESPACE" || true
+
+              kubectl rollout status \
+                "deployment/$DEPLOYMENT" \
+                -n "$NAMESPACE" \
+                --timeout=300s || true
+
+              echo "Rollback attempt completed."
+            fi
+
+            exit "$exit_code"
+          }
+
+          trap handle_exit EXIT
+
+          echo "=== Deploying candidate image ==="
+
+          DEPLOY_STARTED=true
+
+          kubectl set image \
+            "deployment/$DEPLOYMENT" \
+            "$CONTAINER=$IMAGE_TAG" \
+            -n "$NAMESPACE"
+
+          echo "=== Waiting for rollout ==="
+
+          kubectl rollout status \
+            "deployment/$DEPLOYMENT" \
+            -n "$NAMESPACE" \
+            --timeout=300s
+
+          echo "=== Verifying deployed image ==="
+
+          ACTUAL_IMAGE=$(
+            kubectl get deployment "$DEPLOYMENT" \
+              -n "$NAMESPACE" \
+              -o jsonpath="{.spec.template.spec.containers[?(@.name=='$CONTAINER')].image}"
+          )
+
+          if [ "$ACTUAL_IMAGE" != "$IMAGE_TAG" ]; then
+            echo "ERROR: Unexpected deployed image"
+            exit 1
+          fi
+
+          echo "=== Starting port-forward ==="
+
+          kubectl port-forward \
+            -n "$NAMESPACE" \
+            "svc/$SERVICE" \
+            18000:80 \
+            > "$RUNNER_TEMP/port-forward.log" 2>&1 &
+
+          PORT_FORWARD_PID=$!
+
+          echo "=== Running API smoke tests ==="
+
+          python - <<'PY'
+          import json
+          import math
+          import time
+          import urllib.request
+
+          BASE_URL = "http://127.0.0.1:18000"
+
+          for attempt in range(30):
+              try:
+                  with urllib.request.urlopen(
+                      f"{BASE_URL}/health",
+                      timeout=3,
+                  ) as response:
+                      health = json.load(response)
+
+                  if (
+                      response.status == 200
+                      and health.get("model_loaded") is True
+                  ):
+                      print("Health check passed")
+                      break
+
+              except OSError as exc:
+                  print(
+                      f"Health attempt {attempt + 1}: {exc}",
+                      flush=True,
+                  )
+
+              time.sleep(2)
+
+          else:
+              raise RuntimeError(
+                  "Kubernetes health check failed"
+              )
+
+          payload = {
+              "PULocationID": 76,
+              "DOLocationID": 161,
+              "request_datetime": "2026-05-15T08:30:00",
+              "hvfhs_license_num": "HV0003",
+              "shared_request_flag": "N",
+              "wav_request_flag": "N",
+          }
+
+          request = urllib.request.Request(
+              f"{BASE_URL}/predict",
+              data=json.dumps(payload).encode(),
+              headers={
+                  "Content-Type": "application/json"
+              },
+              method="POST",
+          )
+
+          with urllib.request.urlopen(
+              request,
+              timeout=30,
+          ) as response:
+              prediction = json.load(response)
+
+          duration = prediction[
+              "predicted_duration_sec"
+          ]
+
+          if not (
+              isinstance(duration, (int, float))
+              and math.isfinite(duration)
+              and duration > 0
+          ):
+              raise RuntimeError(
+                  "Invalid model prediction"
+              )
+
+          print(
+              "Kubernetes prediction smoke test passed:",
+              prediction,
+          )
+          PY
+
+          echo "=== Promoting MLflow Champion ==="
+
+          uv run --no-sync python - <<'PY'
+          import os
+
+          import mlflow
+          from mlflow import MlflowClient
+
+          mlflow.set_tracking_uri(
+              os.environ["MLFLOW_TRACKING_URI"]
+          )
+
+          client = MlflowClient()
+
+          model_name = os.environ["MODEL_NAME"]
+          model_version = os.environ["MODEL_VERSION"]
+
+          candidate = client.get_model_version(
+              name=model_name,
+              version=model_version,
+          )
+
+          if candidate.tags.get("quality_gate") not in (
+              "approved",
+              "initial_candidate",
+          ):
+              raise RuntimeError(
+                  "Candidate has not passed Quality Gate"
+              )
+
+          if candidate.tags.get("dataset_scope") != "production":
+              raise RuntimeError(
+                  "Production dataset approval is missing"
+              )
+
+          client.set_registered_model_alias(
+              name=model_name,
+              alias="Champion",
+              version=model_version,
+          )
+
+          print(
+              f"Champion updated to version {model_version}"
+          )
+          PY
+
+          echo "=== Release completed successfully ==="
+
+          cleanup
+          PORT_FORWARD_PID=""
+
+          trap - EXIT
 
       - name: Write release summary
         env:
