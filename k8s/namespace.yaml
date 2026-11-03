@@ -1,0 +1,8 @@
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: taxi-ml
+  labels:
+    project: taxi-ml
+    environment: dev

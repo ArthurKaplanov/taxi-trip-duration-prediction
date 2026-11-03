@@ -1,0 +1,53 @@
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: taxi-load-test
+  namespace: taxi-ml
+spec:
+  parallelism: 3
+  completions: 3
+  backoffLimit: 0
+
+  template:
+    spec:
+      restartPolicy: Never
+
+      containers:
+        - name: load-client
+          image: curlimages/curl:8.12.1
+
+          command:
+            - /bin/sh
+            - -c
+            - |
+              i=0
+              while [ "$i" -lt 1000 ]; do
+                curl -sS \
+                  --max-time 5 \
+                  -o /dev/null \
+                  -w "%{http_code}\n" \
+                  -X POST \
+                  -H "Content-Type: application/json" \
+                  --data-binary @/payload/request.json \
+                  http://taxi-prediction.taxi-ml.svc.cluster.local/predict
+                i=$((i + 1))
+              done
+
+          volumeMounts:
+            - name: payload
+              mountPath: /payload
+              readOnly: true
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
+
+      volumes:
+        - name: payload
+          configMap:
+            name: taxi-load-payload

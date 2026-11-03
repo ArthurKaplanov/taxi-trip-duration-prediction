@@ -51,3 +51,16 @@ run-app:
 	--name taxi-prediction \
 	-p 8000:8000 \
 	taxi-prediction:local-v4
+
+
+deploy-app:
+	kubectl apply -f k8s/namespace.yaml
+	kubectl apply -f k8s/deployment.yaml
+	kubectl apply -f k8s/service.yaml
+	kubectl apply -f hpa.yaml
+
+port-forward:
+	kubectl port-forward \
+	-n taxi-ml \
+	svc/taxi-prediction \
+	8000:80
