@@ -24,6 +24,8 @@ models/
 terraform.tfvars
 terraform.tfstate
 .terraform.tfstate*
+.terraform.tfstate.lock.info
+terraform.tfstate.backup
 .terraform
 variables.json
 key.json
